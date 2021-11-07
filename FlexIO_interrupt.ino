@@ -227,9 +227,9 @@ void FlexIO2_Init() {
     p->CTRL = FLEXIO_CTRL_FLEXEN | FLEXIO_CTRL_FASTACC;
 
     // configure interrupts
-    attachInterruptVector(IRQ_FLEXIO2, isr);
-    NVIC_ENABLE_IRQ(IRQ_FLEXIO2);
-    NVIC_SET_PRIORITY(IRQ_FLEXIO2, FLEXIO_ISR_PRIORITY);
+    attachInterruptVector(hw->flex_irq, isr);
+    NVIC_ENABLE_IRQ(hw->flex_irq);
+    NVIC_SET_PRIORITY(hw->flex_irq, FLEXIO_ISR_PRIORITY);
 
     // disable interrupts until later
     p->SHIFTSIEN &= ~(1 << SHIFTER_IRQ);
