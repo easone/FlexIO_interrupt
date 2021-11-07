@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include "FlexIO_t4.h"
-#define SHIFTNUM 4 // number of shifters used (must be 1, 2, 4, or 8)
+#define SHIFTNUM 8 // number of shifters used (up to 8)
 #define BYTES_PER_BEAT (sizeof(uint8_t))
 #define BEATS_PER_SHIFTER (sizeof(uint32_t)/BYTES_PER_BEAT)
 #define BYTES_PER_BURST (sizeof(uint32_t)*SHIFTNUM)
@@ -53,6 +53,8 @@ void transmitAsync(void *src, uint32_t bytes) {
     bytes_remaining = bytes;
     readPtr = (uint32_t*)src;
 
+    uint8_t beats = SHIFTNUM * BEATS_PER_SHIFTER;
+    p->TIMCMP[0] = ((beats * 2U - 1) << 8) | (SHIFT_CLOCK_DIVIDER / 2U - 1U);
     p->TIMSTAT = (1 << TIMER_IRQ); // clear timer interrupt signal
 
     // enable interrupts to trigger bursts
