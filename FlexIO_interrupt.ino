@@ -23,6 +23,7 @@ uint8_t databuf[32] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0
 volatile uint32_t bytes_remaining;
 volatile uint32_t *readPtr;
 uint32_t finalBurstBuffer[SHIFTNUM];
+volatile bool pendingTransfer;
 
 void setup() {
     Serial.begin(115200);
@@ -38,11 +39,15 @@ void setup() {
 
 void loop() {
     transmitAsync(databuf, 32);
-
     delay(1000);
 }
 
 void transmitAsync(void *src, uint32_t bytes) {
+
+    while (pendingTransfer) {
+      yield(); // wait until previous transfer is complete
+    }
+    pendingTransfer = true;
 
     int remainder = bytes % BYTES_PER_BURST;
     if (remainder != 0) {
@@ -70,6 +75,7 @@ FASTRUN void isr() {
         if (finalBurst) {
             finalBurst = false;
             p->TIMIEN &= ~(1 << TIMER_IRQ); // disable timer interrupt
+            pendingTransfer = false;
             transferCompleteCallback();
             return;
         }
