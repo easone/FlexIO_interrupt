@@ -10,7 +10,7 @@
 #define SHIFTER_IRQ (SHIFTNUM-1)
 #define TIMER_IRQ 0
 #define FLEXIO_BASE_CLOCK 120000000UL
-#define SHIFT_CLOCK_DIVIDER 20
+#define SHIFT_CLOCK_DIVIDER 10
 #define FLEXIO_ISR_PRIORITY 64 // interrupt is timing sensitive, so use relatively high priority (supersedes USB)
 
 FlexIOHandler *pFlex;
@@ -21,6 +21,7 @@ uint8_t databuf[32] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0
 
 /* variables used by ISR */
 volatile uint32_t bytes_remaining;
+volatile unsigned int bursts_to_complete;
 volatile uint32_t *readPtr;
 uint32_t finalBurstBuffer[SHIFTNUM];
 volatile bool pendingTransfer;
@@ -49,10 +50,13 @@ void transmitAsync(void *src, uint32_t bytes) {
     }
     pendingTransfer = true;
 
+    bursts_to_complete = bytes / BYTES_PER_BURST;
+
     int remainder = bytes % BYTES_PER_BURST;
     if (remainder != 0) {
         memset(finalBurstBuffer, 0, sizeof(finalBurstBuffer));
         memcpy(finalBurstBuffer, (uint8_t*)src + bytes - remainder, remainder);
+        bursts_to_complete++;
     }
 
     bytes_remaining = bytes;
@@ -62,20 +66,22 @@ void transmitAsync(void *src, uint32_t bytes) {
     p->TIMCMP[0] = ((beats * 2U - 1) << 8) | (SHIFT_CLOCK_DIVIDER / 2U - 1U);
     p->TIMSTAT = (1 << TIMER_IRQ); // clear timer interrupt signal
 
+    asm("dsb");
+
     // enable interrupts to trigger bursts
     p->TIMIEN |= (1 << TIMER_IRQ);
     p->SHIFTSIEN |= (1 << SHIFTER_IRQ);
 }
 
 FASTRUN void isr() {
-    static volatile bool finalBurst = false;
-
+  
     if (p->TIMSTAT & (1 << TIMER_IRQ)) { // interrupt from end of burst
         p->TIMSTAT = (1 << TIMER_IRQ); // clear timer interrupt signal
-        if (finalBurst) {
-            finalBurst = false;
+        bursts_to_complete--;
+        if (bursts_to_complete == 0) {
             p->TIMIEN &= ~(1 << TIMER_IRQ); // disable timer interrupt
             pendingTransfer = false;
+            asm("dsb");
             transferCompleteCallback();
             return;
         }
@@ -85,7 +91,6 @@ FASTRUN void isr() {
         // note, the interrupt signal is cleared automatically when writing data to the shifter buffers
         if (bytes_remaining == 0) { // just started final burst, no data to load
             p->SHIFTSIEN &= ~(1 << SHIFTER_IRQ); // disable shifter interrupt signal
-            finalBurst = true;
         } else if (bytes_remaining < BYTES_PER_BURST) { // just started second-to-last burst, load data for final burst
             uint8_t beats = bytes_remaining / BYTES_PER_BEAT;
             p->TIMCMP[0] = ((beats * 2U - 1) << 8) | (SHIFT_CLOCK_DIVIDER / 2U - 1U); // takes effect on final burst
